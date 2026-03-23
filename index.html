@@ -443,7 +443,7 @@ let currentYear  = new Date().getFullYear();
 let currentMonth = new Date().getMonth();
 let editingDate  = null;
 let pickupOn     = false;
-let selectedShift = 'none';
+let selectedShifts = new Set(); // D/E/N 복수 선택
 
 // ── 동기화 상태 ──
 function setSyncStatus(status, text) {
@@ -478,7 +478,9 @@ async function fetchRecords() {
         end:       r.end       || '',
         extra:     r.extra     || '0',
         pickup:    r.pickup === 'true' || r.pickup === true,
-        wifeShift: r.wifeShift || 'none',
+        wifeShift: r.wifeShift
+          ? r.wifeShift.split(',').filter(s => s && s !== 'none')
+          : [],
         extras:    r.extras    ? JSON.parse(r.extras) : []
       };
     });
@@ -506,7 +508,7 @@ async function saveRecord(date, rec) {
         end:       rec.end       || '',
         extra:     String(rec.extra || '0'),
         pickup:    String(rec.pickup || false),
-        wifeShift: rec.wifeShift || 'none',
+        wifeShift: Array.isArray(rec.wifeShift) ? rec.wifeShift.join(',') : (rec.wifeShift || 'none'),
         extras:    JSON.stringify(rec.extras || [])
       })
     });
@@ -634,14 +636,19 @@ function renderCalendar() {
     content.className = 'cell-content';
 
     if (rec) {
-      // 1. 윤정 근무 (맨 위)
-      if (rec.wifeShift && rec.wifeShift !== 'none') {
+      // 1. 윤정 근무 (맨 위) - 복수 지원
+      const shifts = Array.isArray(rec.wifeShift)
+        ? rec.wifeShift.filter(s => s && s !== 'none')
+        : (rec.wifeShift && rec.wifeShift !== 'none' ? [rec.wifeShift] : []);
+      if (shifts.length > 0) {
         const row = document.createElement('div');
         row.className = 'chip-row';
-        const chip = document.createElement('span');
-        chip.className = `chip shift-${rec.wifeShift}`;
-        chip.textContent = `${SHIFT_ICON[rec.wifeShift]} 윤정 ${rec.wifeShift}`;
-        row.appendChild(chip);
+        shifts.forEach(s => {
+          const chip = document.createElement('span');
+          chip.className = `chip shift-${s}`;
+          chip.textContent = `${SHIFT_ICON[s]} ${s}`;
+          row.appendChild(chip);
+        });
         content.appendChild(row);
       }
 
@@ -732,10 +739,15 @@ function openEdit(dStr, isWeekend) {
   document.getElementById('modalTitle').textContent = '📋 ' + formatDateKR(dStr);
   document.getElementById('modalDate').textContent  = isWeekend ? '주말' : '평일';
 
-  // 윤정 근무 복원
-  selectedShift = rec.wifeShift || 'none';
+  // 윤정 근무 복원 (복수)
+  selectedShifts = new Set(
+    Array.isArray(rec.wifeShift)
+      ? rec.wifeShift
+      : (rec.wifeShift && rec.wifeShift !== 'none' ? rec.wifeShift.split(',').filter(Boolean) : [])
+  );
   document.querySelectorAll('.shift-btn').forEach(b => {
-    b.classList.toggle('selected', b.dataset.shift === selectedShift);
+    const s = b.dataset.shift;
+    b.classList.toggle('selected', s === 'none' ? selectedShifts.size === 0 : selectedShifts.has(s));
   });
 
   // 근무시간 (평일만)
@@ -761,12 +773,30 @@ function openEdit(dStr, isWeekend) {
   document.getElementById('editModal').classList.add('open');
 }
 
-// ── 윤정 근무 선택 ──
+// ── 윤정 근무 선택 (복수) ──
 document.querySelectorAll('.shift-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    selectedShift = btn.dataset.shift;
-    document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
+    const s = btn.dataset.shift;
+    if (s === 'none') {
+      // 없음 누르면 전체 해제
+      selectedShifts.clear();
+      document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    } else {
+      // 없음 버튼 해제
+      document.querySelector('.shift-btn[data-shift="none"]').classList.remove('selected');
+      if (selectedShifts.has(s)) {
+        selectedShifts.delete(s);
+        btn.classList.remove('selected');
+        // 아무것도 없으면 없음 선택
+        if (selectedShifts.size === 0) {
+          document.querySelector('.shift-btn[data-shift="none"]').classList.add('selected');
+        }
+      } else {
+        selectedShifts.add(s);
+        btn.classList.add('selected');
+      }
+    }
   });
 });
 
@@ -843,8 +873,9 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     const title = row.querySelector('.title-input').value.trim();
     if (title) extras.push({ time, title });
   });
+  const wifeShift = selectedShifts.size > 0 ? [...selectedShifts] : ['none'];
   document.getElementById('editModal').classList.remove('open');
-  await saveRecord(editingDate, { start, end, extra, pickup: pickupOn, wifeShift: selectedShift, extras });
+  await saveRecord(editingDate, { start, end, extra, pickup: pickupOn, wifeShift, extras });
 });
 
 // ── 삭제 ──
@@ -908,7 +939,7 @@ document.getElementById('saveBulkBtn').addEventListener('click', async () => {
           action: 'set', date: dStr,
           start, end, extra,
           pickup:    String(rec.pickup),
-          wifeShift: rec.wifeShift,
+          wifeShift: Array.isArray(rec.wifeShift) ? rec.wifeShift.join(',') : (rec.wifeShift || 'none'),
           extras:    JSON.stringify(rec.extras)
         })
       });
