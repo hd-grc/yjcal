@@ -878,35 +878,41 @@ document.getElementById('saveBulkBtn').addEventListener('click', async () => {
   document.getElementById('bulkModal').classList.remove('open');
   showLoading('일괄 저장 중...');
 
+  // 저장할 날짜 목록 수집
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const promises = [];
+  const dayList = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const cellDate = new Date(currentYear, currentMonth, d);
     const dow = cellDate.getDay();
     if (dow === 0 || dow === 6) continue;
-    const dStr = dateStr(cellDate);
-    const existing = records[dStr] || {};
-    const rec = {
-      start, end, extra,
-      pickup:    existing.pickup    || false,
-      wifeShift: existing.wifeShift || 'none',
-      extras:    existing.extras    || []
-    };
-    records[dStr] = rec;
-    promises.push(fetch(SCRIPT_URL, {
-      method: 'POST',
-      body: JSON.stringify({
-        action: 'set', date: dStr,
-        start, end, extra,
-        pickup:    String(rec.pickup),
-        wifeShift: rec.wifeShift,
-        extras:    JSON.stringify(rec.extras)
-      })
-    }));
+    dayList.push(dateStr(cellDate));
   }
 
   try {
-    await Promise.all(promises);
+    // 순차 저장 (동시 요청 시 Apps Script 충돌 방지)
+    for (let i = 0; i < dayList.length; i++) {
+      const dStr = dayList[i];
+      const existing = records[dStr] || {};
+      const rec = {
+        start, end, extra,
+        pickup:    existing.pickup    || false,
+        wifeShift: existing.wifeShift || 'none',
+        extras:    existing.extras    || []
+      };
+      records[dStr] = rec;
+      document.getElementById('loadingText').textContent =
+        `저장 중... (${i+1}/${dayList.length})`;
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'set', date: dStr,
+          start, end, extra,
+          pickup:    String(rec.pickup),
+          wifeShift: rec.wifeShift,
+          extras:    JSON.stringify(rec.extras)
+        })
+      });
+    }
     await fetchRecords();
   } catch(err) {
     setSyncStatus('error', '일괄 저장 실패');
